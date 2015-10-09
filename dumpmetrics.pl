@@ -8,13 +8,23 @@ use strict;
 use warnings;
 
 use XML::LibXML::Reader;
+use DBM::Deep;
+use Locale::Country;
 
 $| = 1;
 
 my $debug = 0;
-my $index = {};
 my $lt = time;  #for progress indicators
 my $count = 0;
+
+# this stores information about each page
+my $index = DBM::Deep->new(
+    file => "pages.db",
+    locking => 0,
+    autoflush => 0,
+    max_buckets => 48,
+    pack_size => 'large',
+);
 
 # where are we reading the xml from?
 my $infile = shift @ARGV;
@@ -52,7 +62,8 @@ while (my ($k, $v) = each %$index)
 	       $k,
 	       $index->{$k}{namespace},
 	       $index->{$k}{title},
-	       $index->{$k}{tree}
+	       $index->{$k}{tree}||"",
+	       $index->{$k}{cn}||"",
 	),"\n";
 }
 exit 0;
@@ -151,7 +162,27 @@ sub processPage
 		$textdom->find('/person/child_of_family/@title')->to_literal_list,
 		$textdom->find('/person/spouse_of_family/@title')->to_literal_list),
 	    ];
+	# get a list of event places
+	$index->{$qtitle}{cn} =
+	    country_code($textdom->find('/person/event_fact/@place')->to_literal_list)||"?";
     }
+}
+
+# convert list of places to country codes and pick the one seen most often
+sub country_code
+{
+    my @places = @_;
+    my $c = {};
+
+    foreach my $p (@places)
+    {
+	$p =~ s/\s*\|.+$//;  # chop off alt text
+	$p =~ s/^.+,\s*//;  # chop off before comma... should be country
+	my $cn = country2code($p, LOCALE_CODE_ALPHA_3);
+	next unless $cn;
+	$c->{$cn}++;
+    }
+    (sort {$c->{$b} <=> $c->{$a}} keys %$c)[0];
 }
 
 # traverse the person/family connections and return the number of
