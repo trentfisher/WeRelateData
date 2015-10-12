@@ -23,8 +23,9 @@ my $index = DBM::Deep->new(
     locking => 0,
     autoflush => 0,
     max_buckets => 48,
-    pack_size => 'large',
+#    pack_size => 'large',
 );
+$index = {};
 
 # where are we reading the xml from?
 my $infile = shift @ARGV;
