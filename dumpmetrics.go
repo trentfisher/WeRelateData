@@ -48,6 +48,13 @@ func splittitle(str string) (namespace string, title string) {
     return namespace, title
 }
 
+type Event struct {
+    Type    string `xml:"type,attr"`
+    Date    string `xml:"date,attr"`
+    Place   string `xml:"place,attr"`
+    Sources string `xml:"sources,attr"`
+    Text    string `xml:",chardata"`
+}
 type Source struct {
     Id    string `xml:"id,attr"`
     Title string `xml:"title,attr"`
@@ -61,13 +68,13 @@ type Link struct {
     Title string  `xml:"title,attr"`
 }
 type Person struct {
-    XMLName          xml.Name
-    Name             Name     `xml:"name"`
-    Gender           string   `xml:"gender"`
-    Source_citation  []Source `xml:"source_citation"`
-    Child_of_family  Link     `xml:"child_of_family"`
-    Spouse_of_family []Link   `xml:"spouse_of_family"`
-    Text             string
+    Name             Name     `xml:"person>name"`
+    Gender           string   `xml:"person>gender"`
+    Event_fact       []Event  `xml:"person>event_fact"`
+    Source_citation  []Source `xml:"person>source_citation"`
+    Child_of_family  Link     `xml:"person>child_of_family"`
+    Spouse_of_family []Link   `xml:"person>spouse_of_family"`
+    Text             string   `xml:",chardata"`
     namespace        string
     title            string
     country          string
@@ -82,18 +89,12 @@ type Family struct {
     title            string
 }
 func persondata(str string) (factsxml Person) {
-    m := strings.SplitAfter(str, "</person>")
-    err := xml.Unmarshal([]byte(m[0]), &factsxml)
+    str = strings.Join([]string{"<text>",str,"</text>"}, "")
+    err := xml.Unmarshal([]byte(str), &factsxml)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: xml facts parse %v %s\n", err, str)
+		fmt.Fprintf(os.Stderr, "Error: xml person facts parse %v %s\n", err, str)
 		return
 	}
-    if (len(m) != 2) {
-        fmt.Fprintf(os.Stderr, "Error: no text data %s\n", str)
-        factsxml.Text = ""
-    } else {
-        factsxml.Text = m[1]
-    }
     return factsxml
 }
 
@@ -107,25 +108,23 @@ func familydata(str string) (factsxml Family) {
 		return
 	}
     return factsxml
-/*    m := strings.SplitAfter(str, "</family>")
-    err := xml.Unmarshal([]byte(m[0]), &factsxml)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: xml facts parse %v %s\n", err, str)
-		return
-	}
-    if (len(m) != 2) {
-        fmt.Fprintf(os.Stderr, "Error: no text data %s\n", str)
-        factsxml.Text = ""
-    } else {
-        factsxml.Text = m[1]
-    }
-*/
-    return factsxml
 }
 
 // what country is this person from?
 func getcountry(personxml Person) string {
-    return country.Country2code("USA")
+    cncnt := map[string]int {} // count how many times we see each country
+    for i := range personxml.Event_fact {
+        p := personxml.Event_fact[i].Place
+        p = regexp.MustCompile("[|].+").ReplaceAllString(p, "")
+        p = regexp.MustCompile("^.+,").ReplaceAllString(p, "")
+        fmt.Printf("Event %d %s => %s\n", i, personxml.Event_fact[i].Place, p)
+        cncnt[country.Country2code("USA")]++
+    }
+    cn := ""
+    for i := range cncnt {
+        if (len(cn) == 0 || cncnt[i] > cncnt[cn]) { cn = i }
+    }
+    return cn
 }
 
 //------------------------------------------------------------------------
