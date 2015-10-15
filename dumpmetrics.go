@@ -12,6 +12,7 @@ import (
     "encoding/xml"
     "regexp"
     "strings"
+    "country"
 )
 
 // the index we build up of the pages
@@ -67,38 +68,67 @@ type Person struct {
     Child_of_family  Link     `xml:"child_of_family"`
     Spouse_of_family []Link   `xml:"spouse_of_family"`
     Text             string
+    namespace        string
+    title            string
+    country          string
 }
 type Family struct {
-    XMLName         xml.Name
-    Source_citation []Source
-    Child           []Link `xml:"child_of_family"`
-    Husband         Link `xml:"child_of_family"`
-    Wife            Link `xml:"child_of_family"`
-    Text            string
+    Source_citation  []Source `xml:"family>source_citation"`
+    Child            []Link   `xml:"family>child"`
+    Husband          Link     `xml:"family>husband"`
+    Wife             Link     `xml:"family>wife"`
+    Text             string   `xml:",chardata"`
+    namespace        string
+    title            string
 }
-
 func persondata(str string) (factsxml Person) {
     m := strings.SplitAfter(str, "</person>")
     err := xml.Unmarshal([]byte(m[0]), &factsxml)
 	if err != nil {
-		fmt.Printf("error: xml facts parse %v", err)
+		fmt.Fprintf(os.Stderr, "error: xml facts parse %v %s\n", err, str)
 		return
 	}
-    factsxml.Text = m[1]
+    if (len(m) != 2) {
+        fmt.Fprintf(os.Stderr, "Error: no text data %s\n", str)
+        factsxml.Text = ""
+    } else {
+        factsxml.Text = m[1]
+    }
     return factsxml
 }
 
-func familydata(str string) (factsxml Person) {
-    m := strings.SplitAfter(str, "</family>")
+func familydata(str string) (factsxml Family) {
+    // re-wrap it in text tags so the parser can handle it
+    str = strings.Join([]string{"<text>",str,"</text>"}, "")
+    //fmt.Fprintf(os.Stderr, "\nFAMILY PAGE TEXT:\n%s\n", str)
+    err := xml.Unmarshal([]byte(str), &factsxml)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: xml facts parse: %v: %s\n", err, str)
+		return
+	}
+    return factsxml
+/*    m := strings.SplitAfter(str, "</family>")
     err := xml.Unmarshal([]byte(m[0]), &factsxml)
 	if err != nil {
-		fmt.Printf("error: xml family parse %v", err)
+		fmt.Fprintf(os.Stderr, "error: xml facts parse %v %s\n", err, str)
 		return
 	}
-    factsxml.Text = m[1]
+    if (len(m) != 2) {
+        fmt.Fprintf(os.Stderr, "Error: no text data %s\n", str)
+        factsxml.Text = ""
+    } else {
+        factsxml.Text = m[1]
+    }
+*/
     return factsxml
 }
 
+// what country is this person from?
+func getcountry(personxml Person) string {
+    return country.Country2code("USA")
+}
+
+//------------------------------------------------------------------------
 func main() {
     // open the two files
 	indexfile, err := os.Open(os.Args[1])
@@ -152,27 +182,38 @@ func main() {
         }
 
         namespace, title := splittitle(p.Title)
+        if (regexp.MustCompile("(?i)^#REDIRECT").MatchString(p.Text)) {
+            continue // skip over redirect pages
+        }
         switch namespace {
         case "Person":
-            fmt.Println("PAGE",p.Title,"NAMESPACE",namespace,"TITLE",title)
+            //fmt.Println("PAGE",p.Title,"NAMESPACE",namespace,"TITLE",title)
             personxml := persondata(p.Text)
+            personxml.namespace = namespace
+            personxml.title = title
+            //  country
+            personxml.country = getcountry(personxml)
             fmt.Printf("%q\n", personxml)
         case "Family":
-            fmt.Println("PAGE",p.Title,"NAMESPACE",namespace,"TITLE",title)
+            //fmt.Println("PAGE",p.Title,"NAMESPACE",namespace,"TITLE",title)
             familyxml := familydata(p.Text)
+            familyxml.namespace = namespace
+            familyxml.title = title
             fmt.Printf("%q\n", familyxml)
         }
     }
 
     // TBD traverse trees to find tree sizes
     // TBD quality scores
-    // TBD country
 
     // print the expanded csv file
     csvout := csv.NewWriter(os.Stdout)
-    csvout.Write([]string{
-        p.Title
-        namespace
-    })
+    for i := range index {
+        csvout.Write([]string{
+            strconv.Itoa(i),
+            index[i].title,
+//            namespace,
+        })
+    }
     csvout.Flush()
 }

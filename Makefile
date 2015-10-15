@@ -5,6 +5,8 @@ serve:
 datamaps.world.min.js:
 	wget http://datamaps.github.io/scripts/datamaps.world.min.js
 
+GOPATH=$(shell pwd)
+export GOPATH
 DUMPFILE=pages-30-Sep-2015.xml
 pages.csv: $(DUMPFILE) mkindex
 	./mkindex $(DUMPFILE) > $@
