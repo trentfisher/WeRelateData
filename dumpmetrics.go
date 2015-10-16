@@ -11,7 +11,7 @@ import (
     "strconv"
     "encoding/xml"
     "regexp"
-    "strings"
+//    "strings"
     "country"
 )
 
@@ -20,6 +20,9 @@ type PageIndex struct {
     title string
     start int64
     end   int64
+    country   string
+    tree      int
+    score     int
 }
 
 // record for data from xml
@@ -29,7 +32,7 @@ type Page struct {
 }
 // fetch a range of bytes from the given file
 func fetchrange(in *os.File, start, end int64) string {
-    fmt.Println("fetching byte range", start, "to", end);
+    //fmt.Println("fetching byte range", start, "to", end);
     buf := make([]byte, end-start)
     in.ReadAt(buf, start)
     return string(buf[:]);
@@ -68,58 +71,88 @@ type Link struct {
     Title string  `xml:"title,attr"`
 }
 type Person struct {
-    Name             Name     `xml:"person>name"`
-    Gender           string   `xml:"person>gender"`
-    Event_fact       []Event  `xml:"person>event_fact"`
-    Source_citation  []Source `xml:"person>source_citation"`
-    Child_of_family  Link     `xml:"person>child_of_family"`
-    Spouse_of_family []Link   `xml:"person>spouse_of_family"`
-    Text             string   `xml:",chardata"`
+    Name             Name     `xml:"name"`
+    Gender           string   `xml:"gender"`
+    Event_fact       []Event  `xml:"event_fact"`
+    Source_citation  []Source `xml:"source_citation"`
+    Child_of_family  Link     `xml:"child_of_family"`
+    Spouse_of_family []Link   `xml:"spouse_of_family"`
+    Text             string
     namespace        string
     title            string
     country          string
 }
 type Family struct {
-    Source_citation  []Source `xml:"family>source_citation"`
-    Child            []Link   `xml:"family>child"`
-    Husband          Link     `xml:"family>husband"`
-    Wife             Link     `xml:"family>wife"`
-    Text             string   `xml:",chardata"`
+    Source_citation  []Source `xml:"source_citation"`
+    Child            []Link   `xml:"child"`
+    Husband          Link     `xml:"husband"`
+    Wife             Link     `xml:"wife"`
+    Text             string
     namespace        string
     title            string
 }
 func persondata(str string) (factsxml Person) {
-    str = strings.Join([]string{"<text>",str,"</text>"}, "")
-    err := xml.Unmarshal([]byte(str), &factsxml)
+    facts, text := splitfacts(str)
+    err := xml.Unmarshal([]byte(facts), &factsxml)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: xml person facts parse %v %s\n", err, str)
 		return
 	}
+    factsxml.Text = text
     return factsxml
 }
 
+// split the wiki page contents into the xml facts section and the page
+// text which doesn't seem to be xml
+func splitfacts(str string) (facts, text string) {
+    m := regexp.MustCompile("(?is)^(.*<(/family|/person|family/|person/)>)(.*)").
+        FindStringSubmatch(str)
+    if (len(m) != 4) {
+        fmt.Fprintf(os.Stderr, "Error: split facts failed for %s\n", str)
+        facts = ""
+        text = str
+    } else {
+        facts = m[1]
+        text = m[3]
+    }
+    // trim out some gunk and white space from the text
+    text = regexp.MustCompile("<show_sources_images_notes/>").
+        ReplaceAllString(text, "")
+    text = regexp.MustCompile("(?s)[ \t\r\n]+$").ReplaceAllString(text, "")
+    text = regexp.MustCompile("(?s)^[ \t\r\n]+").ReplaceAllString(text, "")
+    return facts, text
+}
 func familydata(str string) (factsxml Family) {
-    // re-wrap it in text tags so the parser can handle it
-    str = strings.Join([]string{"<text>",str,"</text>"}, "")
-    //fmt.Fprintf(os.Stderr, "\nFAMILY PAGE TEXT:\n%s\n", str)
-    err := xml.Unmarshal([]byte(str), &factsxml)
+    facts, text := splitfacts(str)
+    err := xml.Unmarshal([]byte(facts), &factsxml)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: xml facts parse: %v: %s\n", err, str)
 		return
 	}
+    factsxml.Text = text
     return factsxml
 }
 
 // what country is this person from?
 func getcountry(personxml Person) string {
     cncnt := map[string]int {} // count how many times we see each country
+    birthcn := ""
     for i := range personxml.Event_fact {
         p := personxml.Event_fact[i].Place
         p = regexp.MustCompile("[|].+").ReplaceAllString(p, "")
         p = regexp.MustCompile("^.+,").ReplaceAllString(p, "")
-        fmt.Printf("Event %d %s => %s\n", i, personxml.Event_fact[i].Place, p)
-        cncnt[country.Country2code("USA")]++
+        c := country.Country2code(p)
+        fmt.Printf("Event %d %s => %s => %s\n", i, personxml.Event_fact[i].Place, p, c)
+        cncnt[c]++
+        if (personxml.Event_fact[i].Type == "Birth" ||
+            personxml.Event_fact[i].Type == "Christening") {
+            birthcn = c
+        }
     }
+
+    // we prefer birth data
+    if (len(birthcn) > 0) { return birthcn }
+
     cn := ""
     for i := range cncnt {
         if (len(cn) == 0 || cncnt[i] > cncnt[cn]) { cn = i }
@@ -132,7 +165,7 @@ func main() {
     // open the two files
 	indexfile, err := os.Open(os.Args[1])
 	if err != nil {
-		fmt.Println("Error opening file:", err)
+		fmt.Fprintln(os.Stderr, "Error opening file:", err)
 		return
 	}
 	defer indexfile.Close()
@@ -155,7 +188,7 @@ func main() {
         if err == io.EOF {
             break
         } else if err != nil {
-            fmt.Println("Error: bad record ",err)
+            fmt.Fprintln(os.Stderr, "Error: bad record ",err)
             continue
         }
         page2index[record[0]] = len(index);
@@ -166,17 +199,17 @@ func main() {
         index = append(index, rec)
         //fmt.Println("add record", index[0].title, index[0].start, index[0].end);
     }
-    fmt.Println("read",len(index), "records")
+    fmt.Fprintln(os.Stderr, "Loaded",len(index), "index records")
 
     // no go through each record and fill in more details from each page
     for i := range index {
-        //fmt.Println("Page", i, "title", index[i].title, index[i].start, index[i].end);
+        fmt.Fprintln(os.Stderr, "Page", i, "title", index[i].title, index[i].start, index[i].end);
         buf := make([]byte, index[i].end-index[i].start)
         pagefile.ReadAt(buf, index[i].start)
         var p Page
         err := xml.Unmarshal(buf, &p)
         if err != nil {
-            fmt.Printf("error parsing xml for %s: %v", index[i].title, err)
+            fmt.Fprintf(os.Stderr, "error parsing xml for %s: %v", index[i].title, err)
             continue
         }
 
@@ -184,6 +217,8 @@ func main() {
         if (regexp.MustCompile("(?i)^#REDIRECT").MatchString(p.Text)) {
             continue // skip over redirect pages
         }
+        //index[i].namespace = namespace
+        //index[i].stitle = title
         switch namespace {
         case "Person":
             //fmt.Println("PAGE",p.Title,"NAMESPACE",namespace,"TITLE",title)
@@ -191,14 +226,14 @@ func main() {
             personxml.namespace = namespace
             personxml.title = title
             //  country
-            personxml.country = getcountry(personxml)
-            fmt.Printf("%q\n", personxml)
+            index[i].country = getcountry(personxml)
+            //fmt.Printf("PERSON %q\n", personxml)
         case "Family":
             //fmt.Println("PAGE",p.Title,"NAMESPACE",namespace,"TITLE",title)
             familyxml := familydata(p.Text)
             familyxml.namespace = namespace
             familyxml.title = title
-            fmt.Printf("%q\n", familyxml)
+            //fmt.Printf("FAMILY %q\n", familyxml)
         }
     }
 
@@ -211,7 +246,9 @@ func main() {
         csvout.Write([]string{
             strconv.Itoa(i),
             index[i].title,
-//            namespace,
+            index[i].country,
+            strconv.Itoa(index[i].tree),
+            strconv.Itoa(index[i].score),
         })
     }
     csvout.Flush()
