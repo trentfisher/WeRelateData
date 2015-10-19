@@ -38,6 +38,16 @@ func fetchrange(in *os.File, start, end int64) string {
     return string(buf[:]);
 }
 
+func fetchxmlfrag(pagefile *os.File, start int64, end int64) (p Page) {
+    buf := make([]byte, end-start)
+    pagefile.ReadAt(buf, start)
+    err := xml.Unmarshal(buf, &p)
+    if err != nil {
+        fmt.Fprintf(os.Stderr, "Error: parsing xml for: %v", err)
+    }
+    return p
+}
+
 func splittitle(str string) (namespace string, title string) {
     re := regexp.MustCompile("^([A-Za-z]+|[A-Za-z]+ talk):(.+)")
     if (re.MatchString(str)) {
@@ -140,9 +150,10 @@ func getcountry(personxml Person) string {
     for i := range personxml.Event_fact {
         p := personxml.Event_fact[i].Place
         p = regexp.MustCompile("[|].+").ReplaceAllString(p, "")
-        p = regexp.MustCompile("^.+,").ReplaceAllString(p, "")
+        p = regexp.MustCompile("^.+, *").ReplaceAllString(p, "")
+        p = regexp.MustCompile(" +$").ReplaceAllString(p, "")
         c := country.Country2code(p)
-        fmt.Printf("Event %d %s => %s => %s\n", i, personxml.Event_fact[i].Place, p, c)
+        fmt.Fprintf(os.Stderr, "Event %d %s => %s => %s\n", i, personxml.Event_fact[i].Place, p, c)
         cncnt[c]++
         if (personxml.Event_fact[i].Type == "Birth" ||
             personxml.Event_fact[i].Type == "Christening") {
@@ -204,21 +215,13 @@ func main() {
     // no go through each record and fill in more details from each page
     for i := range index {
         fmt.Fprintln(os.Stderr, "Page", i, "title", index[i].title, index[i].start, index[i].end);
-        buf := make([]byte, index[i].end-index[i].start)
-        pagefile.ReadAt(buf, index[i].start)
-        var p Page
-        err := xml.Unmarshal(buf, &p)
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "error parsing xml for %s: %v", index[i].title, err)
-            continue
-        }
+        p := fetchxmlfrag(pagefile, index[i].start, index[i].end)
 
         namespace, title := splittitle(p.Title)
-        if (regexp.MustCompile("(?i)^#REDIRECT").MatchString(p.Text)) {
+/*        if (regexp.MustCompile("(?i)^#REDIRECT").MatchString(p.Text)) {
             continue // skip over redirect pages
         }
-        //index[i].namespace = namespace
-        //index[i].stitle = title
+*/
         switch namespace {
         case "Person":
             //fmt.Println("PAGE",p.Title,"NAMESPACE",namespace,"TITLE",title)

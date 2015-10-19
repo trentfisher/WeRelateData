@@ -3,6 +3,7 @@ package country
 // translate country names to codes and vice versa
 
 //import "fmt"
+import "strings"
 
 type CountryInfo struct {
     numcode    int
@@ -270,7 +271,7 @@ func Code2country(country string) string {
 func Country2code(country string) string {
     for c := range countrydata {
         for n := range countrydata[c].names {
-            if (countrydata[c].names[n] == country) {
+            if (strings.EqualFold(countrydata[c].names[n], country)) {
                 return countrydata[c].alpha3code
             }
         }
