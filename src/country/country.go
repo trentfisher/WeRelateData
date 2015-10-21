@@ -241,7 +241,7 @@ func init () {
         {232, "ug", "uga", []string{"Uganda"}},
         {233, "ua", "ukr", []string{"Ukraine"}},
         {234, "ae", "are", []string{"United Arab Emirates"}},
-        {235, "gb", "gbr", []string{"United Kingdom", "United Kingdom of Great Britain and Northern Ireland", "Great Britain", "UK"}},
+        {235, "gb", "gbr", []string{"United Kingdom", "United Kingdom of Great Britain and Northern Ireland", "Great Britain", "UK", "England", "Scotland"}},
         {236, "us", "usa", []string{"United States", "United States of America", "US", "USA"}},
         {238, "uy", "ury", []string{"Uruguay"}},
         {239, "uz", "uzb", []string{"Uzbekistan"}},

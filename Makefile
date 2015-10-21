@@ -1,13 +1,20 @@
-all: pageinfo.csv countries.csv serve
+GOPATH=$(shell pwd)
+export GOPATH
+DUMPFILE=pages-30-Sep-2015.xml
+DBFILE=pages.db
+.PRECIOUS: $(DBFILE) $(DUMPFILE)
+
+all: $(DBFILE) serve
 
 serve:
 	python -m SimpleHTTPServer
 datamaps.world.min.js:
 	wget http://datamaps.github.io/scripts/datamaps.world.min.js
 
-GOPATH=$(shell pwd)
-export GOPATH
-DUMPFILE=pages-30-Sep-2015.xml
+$(DBFILE): src/dump2db.go $(DUMPFILE)
+	sqlite3 $@ < werelate.sql
+	go run src/dump2db.go $@ $(DUMPFILE)
+
 # first build an index of all pages
 pages.csv: $(DUMPFILE) mkindex
 	./mkindex $(DUMPFILE) > $@
