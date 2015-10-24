@@ -81,6 +81,12 @@ func setupdb(dbfile string) *sql.DB {
         log.Fatal("Error: sqlite db open", err)
     }
 
+    // some pragmas to speed things up
+    db.Exec("PRAGMA journal_mode = WAL")
+    db.Exec("PRAGMA synchronous = OFF")
+    db.Exec("PRAGMA cache_size = 80000")
+    db.Exec("PRAGMA threads = 10")
+
     return db
 }
 
@@ -250,14 +256,13 @@ func fetchxmlfrag(pagefile *os.File, start int64, end int64) (p Page) {
     return p
 }
 
-func redirectpage(p Page) bool {
-    m := regexp.MustCompile("(?is)[\n\r]#REDIRECT[ ]*(.+?)[\n\r]").
+func redirectpage(p Page) string {
+    m := regexp.MustCompile("(?is)#REDIRECT[ ]*(.+?)[\n\r]").
         FindStringSubmatch(p.Text)
     if (len(m) == 1) {
-        fmt.Println("REDIRECT to",m[0])
-        return true
+        return m[0]
     }
-    return false
+    return ""
 }
 
 // ------------------------------------------------------------------------
@@ -270,6 +275,10 @@ func loadpageinfo(db *sql.DB, pagefile *os.File) {
     }
 
     // prepare some queries for later
+    setredirect, err := tx.Prepare("update pages set redirect=(select id from pages where namespace = ? and name = ?) where id=?");
+    if err != nil {
+        log.Fatal("Error: prepare set redirect failed:",err)
+    }
     addcountry, err := tx.Prepare("update pages set country=? where id=?")
     if err != nil {
         log.Fatal("Error: prepare add country failed:",err)
@@ -297,7 +306,11 @@ func loadpageinfo(db *sql.DB, pagefile *os.File) {
         p := fetchxmlfrag(pagefile, start, end)
 
         // is this a redirect page?
-        if (redirectpage(p)) {
+        r := redirectpage(p)
+        if (len(r) > 0) {
+            tn, tt := werelate.SplitTitle(r)
+            fmt.Println("REDIRECT",id,"to",tn,tt)
+            setredirect.Exec(tn,tt,id);
             continue
         }
 
@@ -355,7 +368,7 @@ func loadpageinfo(db *sql.DB, pagefile *os.File) {
                     log.Fatal(err)
                 }
             }
-            fmt.Printf("FAMILY %q\n", familyxml)
+            //fmt.Printf("FAMILY %q\n", familyxml)
         }
     }
 
