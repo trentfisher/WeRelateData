@@ -32,6 +32,7 @@ type NameSpaces struct {
 }
 // map namespace names to id numbers
 var namespace2id map[string]int
+var page2id      map[int]map[string]int
 
 // representation of the person and family data inside each page
 type Event struct {
@@ -84,7 +85,7 @@ func setupdb(dbfile string) *sql.DB {
     // some pragmas to speed things up
     db.Exec("PRAGMA journal_mode = WAL")
     db.Exec("PRAGMA synchronous = OFF")
-    db.Exec("PRAGMA cache_size = 80000")
+    //db.Exec("PRAGMA cache_size = 80000")
     db.Exec("PRAGMA threads = 10")
 
     return db
@@ -94,6 +95,9 @@ func setupdb(dbfile string) *sql.DB {
 // do the first pass through the xml file,
 // populating the database with basic info
 func loadindex(db *sql.DB, pagefile string) {
+
+    page2id = make(map[int]map[string]int)
+
     // start a transaction
     tx, err := db.Begin()
     if err != nil {
@@ -145,6 +149,7 @@ func loadindex(db *sql.DB, pagefile string) {
                 if err != nil {
                     log.Fatal(err)
                 }
+                page2id[n][title] = total
                 total++
                 fmt.Fprintf(os.Stderr, "Indexing page %d\r", total)
 			} else if (inElement == "namespaces") {
@@ -164,6 +169,7 @@ func loadindex(db *sql.DB, pagefile string) {
                         log.Fatal(err)
                     }
                     namespace2id[n.Names[i].Name] = n.Names[i].Key
+                    page2id[n.Names[i].Key] = make(map[string]int)
                 }
                 fmt.Printf("NAMESPACES %q\n", namespace2id)
 
